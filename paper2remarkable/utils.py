@@ -17,7 +17,7 @@ import time
 import unidecode
 
 from .log import Logger
-from .exceptions import FileTypeError, RemarkableError
+from .exceptions import FileTypeError, RemarkableError, NoPDFToolError
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) "
@@ -122,8 +122,10 @@ def follow_redirects(url):
         if not "Location" in req.headers:
             break
         url = req.headers["Location"]
-        jar = req.cookies
+        jar.update(req.cookies)
         it += 1
+    if it == 100:
+        logger.warning("Max redirects reached. There may be a problem.")
     jar = jar or req.cookies
     return url, jar
 
@@ -161,7 +163,34 @@ def upload_to_remarkable(filepath, remarkable_dir="/", rmapi_path="rmapi"):
 
 def is_url(string):
     # pattern adapted from CleverCSV
-    pattern = "((https?|ftp):\/\/(?!\-))?(((([\p{L}\p{N}]*\-?[\p{L}\p{N}]+)+\.)+([a-z]{2,}|local)(\.[a-z]{2,3})?)|localhost|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\:\d{1,5})?))(\/[\p{L}\p{N}_\/()~?=&%\-\#\.:]*)?(\.[a-z]+)?"
+    pattern = "((https?|ftp):\/\/(?!\-))?(((([\p{L}\p{N}]*\-?[\p{L}\p{N}]+)+\.)+([a-z]{2,}|local)(\.[a-z]{2,3})?)|localhost|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\:\d{1,5})?))(\/[\p{L}\p{N}_\/()~?=&%\-\#\.:+]*)?(\.[a-z]+)?"
     string = string.strip(" ")
     match = regex.fullmatch(pattern, string)
     return match is not None
+
+
+def check_pdftool(pdftk_path, qpdf_path):
+    """Check whether we have pdftk or qpdf available"""
+    # set defaults in case either is set to None or something
+    pdftk_path = pdftk_path or "false"
+    qpdf_path = qpdf_path or "false"
+
+    try:
+        status = subprocess.call(
+            [pdftk_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    except FileNotFoundError:
+        status = 1
+    if status == 0:
+        return "pdftk"
+    try:
+        status = subprocess.call(
+        [qpdf_path, "--help"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    except FileNotFoundError:
+        status = 1
+    if status == 0:
+        return "qpdf"
+    raise NoPDFToolError
